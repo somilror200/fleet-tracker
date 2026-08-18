@@ -4,6 +4,8 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 async function request(path, options = {}) {
   const res = await fetch(`${baseUrl}${path}`, {
     ...options,
@@ -35,6 +37,34 @@ async function expectStatus(path, status, options = {}) {
   return result.body;
 }
 
+function vehiclePayload(overrides = {}) {
+  return {
+    plate: `QA-${Date.now()}`,
+    name: "QA Test Truck",
+    type: "truck",
+    status: "idle",
+    driverId: null,
+    mileageKm: 1000,
+    fuelPercent: 90,
+    lat: -37.75,
+    lng: 144.6,
+    heading: 0,
+    speedKmh: 0,
+    ...overrides,
+  };
+}
+
+function driverPayload(overrides = {}) {
+  return {
+    name: "QA Test Driver",
+    licenseNumber: `QA-LIC-${Date.now()}`,
+    phone: "0400 000 000",
+    status: "available",
+    vehicleId: null,
+    ...overrides,
+  };
+}
+
 async function main() {
   console.log(`[smoke] Testing ${baseUrl}`);
 
@@ -55,6 +85,14 @@ async function main() {
     method: "POST",
     body: JSON.stringify({ name: "Missing required fields" }),
   });
+  await expectStatus("/api/vehicles", 400, {
+    method: "POST",
+    body: JSON.stringify(vehiclePayload({ status: "active" })),
+  });
+  await expectStatus("/api/drivers", 400, {
+    method: "POST",
+    body: JSON.stringify(driverPayload({ status: "on_trip" })),
+  });
 
   let vehicleId;
   let driverId;
@@ -63,31 +101,13 @@ async function main() {
   try {
     const vehicle = await expectStatus("/api/vehicles", 201, {
       method: "POST",
-      body: JSON.stringify({
-        plate: `QA-${Date.now()}`,
-        name: "QA Test Truck",
-        type: "truck",
-        status: "idle",
-        driverId: null,
-        mileageKm: 1000,
-        fuelPercent: 90,
-        lat: -37.75,
-        lng: 144.6,
-        heading: 0,
-        speedKmh: 0,
-      }),
+      body: JSON.stringify(vehiclePayload()),
     });
     vehicleId = vehicle.id;
 
     const driver = await expectStatus("/api/drivers", 201, {
       method: "POST",
-      body: JSON.stringify({
-        name: "QA Test Driver",
-        licenseNumber: `QA-LIC-${Date.now()}`,
-        phone: "0400 000 000",
-        status: "available",
-        vehicleId: null,
-      }),
+      body: JSON.stringify(driverPayload()),
     });
     driverId = driver.id;
 
@@ -147,6 +167,14 @@ async function main() {
       }),
     });
 
+    await expectStatus(`/api/vehicles/${vehicleId}`, 409, {
+      method: "PATCH",
+      body: JSON.stringify({ driverId: null }),
+    });
+    await expectStatus(`/api/drivers/${driverId}`, 409, {
+      method: "PATCH",
+      body: JSON.stringify({ status: "available" }),
+    });
     await expectStatus(`/api/vehicles/${vehicleId}`, 409, { method: "DELETE" });
     await expectStatus(`/api/drivers/${driverId}`, 409, { method: "DELETE" });
 
@@ -161,6 +189,13 @@ async function main() {
     assert(stoppedVehicle.status === "idle", "Completing trip did not return vehicle to idle");
     assert(stoppedVehicle.speedKmh === 0, "Completing trip did not stop vehicle speed");
     assert(availableDriver?.status === "available", "Completing trip did not release driver");
+
+    const completedMileage = stoppedVehicle.mileageKm;
+    await sleep(3500);
+    const afterTrackingTick = await expectStatus(`/api/vehicles/${vehicleId}`, 200);
+    assert(afterTrackingTick.status === "idle", "Completed vehicle became active again after a simulation tick");
+    assert(afterTrackingTick.speedKmh === 0, "Completed vehicle started moving again after a simulation tick");
+    assert(afterTrackingTick.mileageKm === completedMileage, "Completed vehicle mileage changed after a simulation tick");
 
     await expectStatus(`/api/trips/${tripId}`, 409, {
       method: "PATCH",
@@ -181,14 +216,11 @@ async function main() {
     await expectStatus(`/api/vehicles/${vehicleId}`, 204, { method: "DELETE" });
     vehicleId = undefined;
   } finally {
-    if (tripId) {
-      // Completed trips are intentionally retained as history; no trip DELETE API is exposed.
-    }
     if (driverId) await request(`/api/drivers/${driverId}`, { method: "DELETE" });
     if (vehicleId) await request(`/api/vehicles/${vehicleId}`, { method: "DELETE" });
   }
 
-  console.log("[smoke] All API and lifecycle checks passed");
+  console.log("[smoke] All API, lifecycle and simulation checks passed");
 }
 
 main().catch((err) => {
