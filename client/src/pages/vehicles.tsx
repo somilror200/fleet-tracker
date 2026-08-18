@@ -43,7 +43,7 @@ export default function Vehicles() {
   const [formOpen, setFormOpen] = useState(false);
   const [editingVehicle, setEditingVehicle] = useState<Vehicle | undefined>();
   const [deletingVehicle, setDeletingVehicle] = useState<Vehicle | undefined>();
-  const [detailVehicle, setDetailVehicle] = useState<Vehicle | undefined>();
+  const [detailVehicleId, setDetailVehicleId] = useState<number | null>(null);
 
   const { data: vehicles, isLoading } = useQuery<Vehicle[]>({
     queryKey: ["/api/vehicles"],
@@ -58,12 +58,18 @@ export default function Vehicles() {
     refetchInterval: 3000,
   });
 
+  const detailVehicle = detailVehicleId === null
+    ? undefined
+    : (vehicles ?? []).find((vehicle) => vehicle.id === detailVehicleId);
+
   const deleteMutation = useMutation({
     mutationFn: (id: number) => apiRequest("DELETE", `/api/vehicles/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/vehicles"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/drivers"] });
       toast({ title: "Vehicle deleted" });
       setDeletingVehicle(undefined);
+      setDetailVehicleId(null);
     },
     onError: (err: Error) => {
       toast({ title: "Delete failed", description: err.message, variant: "destructive" });
@@ -95,7 +101,7 @@ export default function Vehicles() {
         }
       />
 
-      <div className="px-6 py-6">
+      <div className="px-4 py-5 sm:px-6 sm:py-6">
         <Card>
           <CardContent className="p-0">
             {isLoading ? (
@@ -123,7 +129,7 @@ export default function Vehicles() {
                       <TableRow
                         key={vehicle.id}
                         className="cursor-pointer"
-                        onClick={() => setDetailVehicle(vehicle)}
+                        onClick={() => setDetailVehicleId(vehicle.id)}
                         data-testid={`row-vehicle-${vehicle.id}`}
                       >
                         <TableCell>
@@ -146,6 +152,7 @@ export default function Vehicles() {
                             <Button
                               variant="ghost"
                               size="icon"
+                              aria-label={`Edit ${vehicle.name}`}
                               onClick={() => {
                                 setEditingVehicle(vehicle);
                                 setFormOpen(true);
@@ -157,6 +164,7 @@ export default function Vehicles() {
                             <Button
                               variant="ghost"
                               size="icon"
+                              aria-label={`Delete ${vehicle.name}`}
                               onClick={() => setDeletingVehicle(vehicle)}
                               data-testid={`button-delete-vehicle-${vehicle.id}`}
                             >
@@ -186,7 +194,7 @@ export default function Vehicles() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete {deletingVehicle?.name}?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently remove the vehicle and its plate {deletingVehicle?.plate} from the fleet.
+              This will permanently remove the vehicle and its plate {deletingVehicle?.plate} from the fleet. Vehicles with an active trip cannot be deleted.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -201,7 +209,7 @@ export default function Vehicles() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <Sheet open={!!detailVehicle} onOpenChange={(open) => !open && setDetailVehicle(undefined)}>
+      <Sheet open={detailVehicleId !== null && !!detailVehicle} onOpenChange={(open) => !open && setDetailVehicleId(null)}>
         <SheetContent className="overflow-y-auto sm:max-w-md" data-testid="sheet-vehicle-detail">
           {detailVehicle && (
             <>
