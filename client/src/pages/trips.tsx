@@ -26,7 +26,6 @@ import { formatDistance, formatDuration } from "@/lib/status";
 import { TripFormDialog } from "@/components/trip-form-dialog";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { Button as Btn } from "@/components/ui/button";
 
 export default function Trips() {
   const { toast } = useToast();
@@ -56,7 +55,8 @@ export default function Trips() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/trips"] });
       queryClient.invalidateQueries({ queryKey: ["/api/drivers"] });
-      toast({ title: "Trip marked completed" });
+      queryClient.invalidateQueries({ queryKey: ["/api/vehicles"] });
+      toast({ title: "Trip marked completed", description: "Vehicle returned to idle and driver is available." });
     },
     onError: (err: Error) => {
       toast({ title: "Could not complete trip", description: err.message, variant: "destructive" });
@@ -73,16 +73,12 @@ export default function Trips() {
 
   return (
     <div className="pb-10">
-      <PageHeader
-        title="Trips"
-        description="Trip log across the fleet, with live filtering"
-        actions={
-          <Button onClick={() => setFormOpen(true)} data-testid="button-add-trip">
-            <Plus className="h-4 w-4" />
-            New Trip
-          </Button>
-        }
-      />
+      <PageHeader title="Trips" description="Trip log across the fleet, with live filtering" actions={
+        <Button onClick={() => setFormOpen(true)} data-testid="button-add-trip">
+          <Plus className="h-4 w-4" />
+          New Trip
+        </Button>
+      } />
 
       <div className="space-y-4 px-6 py-6">
         <div className="flex flex-wrap items-center gap-3">
@@ -97,15 +93,13 @@ export default function Trips() {
             </SelectContent>
           </Select>
           <Select value={vehicleFilter} onValueChange={setVehicleFilter}>
-            <SelectTrigger className="w-[200px]" data-testid="select-filter-vehicle">
+            <SelectTrigger className="w-[200px] max-w-full" data-testid="select-filter-vehicle">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All vehicles</SelectItem>
               {(vehicles ?? []).map((v) => (
-                <SelectItem key={v.id} value={String(v.id)}>
-                  {v.name}
-                </SelectItem>
+                <SelectItem key={v.id} value={String(v.id)}>{v.name}</SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -115,9 +109,7 @@ export default function Trips() {
           <CardContent className="p-0">
             {isLoading ? (
               <div className="space-y-2 p-4">
-                {Array.from({ length: 6 }).map((_, i) => (
-                  <Skeleton key={i} className="h-12 w-full rounded-md" />
-                ))}
+                {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-12 w-full rounded-md" />)}
               </div>
             ) : filteredTrips.length === 0 ? (
               <p className="p-6 text-sm text-muted-foreground">No trips match these filters.</p>
@@ -140,22 +132,17 @@ export default function Trips() {
                       <TableRow key={trip.id} data-testid={`row-trip-list-${trip.id}`}>
                         <TableCell>
                           <p className="font-medium">
-                            {trip.startLocation} <span className="text-muted-foreground">→</span>{" "}
-                            {trip.endLocation}
+                            {trip.startLocation} <span className="text-muted-foreground">→</span>{" "}{trip.endLocation}
                           </p>
                         </TableCell>
                         <TableCell>{vehicleById.get(trip.vehicleId)?.plate ?? "—"}</TableCell>
                         <TableCell>{driverById.get(trip.driverId)?.name ?? "—"}</TableCell>
                         <TableCell className="tabular-nums">{formatDistance(trip.distanceKm)}</TableCell>
-                        <TableCell className="tabular-nums">
-                          {formatDuration(trip.startTime, trip.endTime)}
-                        </TableCell>
-                        <TableCell>
-                          <TripStatusBadge status={trip.status as any} />
-                        </TableCell>
+                        <TableCell className="tabular-nums">{formatDuration(trip.startTime, trip.endTime)}</TableCell>
+                        <TableCell><TripStatusBadge status={trip.status as any} /></TableCell>
                         <TableCell className="text-right">
                           {trip.status === "in_progress" && (
-                            <Btn
+                            <Button
                               variant="ghost"
                               size="sm"
                               onClick={() => completeMutation.mutate(trip.id)}
@@ -164,7 +151,7 @@ export default function Trips() {
                             >
                               <Check className="h-4 w-4" />
                               Complete
-                            </Btn>
+                            </Button>
                           )}
                         </TableCell>
                       </TableRow>
@@ -177,12 +164,7 @@ export default function Trips() {
         </Card>
       </div>
 
-      <TripFormDialog
-        open={formOpen}
-        onOpenChange={setFormOpen}
-        vehicles={vehicles ?? []}
-        drivers={drivers ?? []}
-      />
+      <TripFormDialog open={formOpen} onOpenChange={setFormOpen} vehicles={vehicles ?? []} drivers={drivers ?? []} />
     </div>
   );
 }
