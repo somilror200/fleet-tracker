@@ -41,13 +41,13 @@ function App() {
       <TooltipProvider>
         <Router hook={useHashLocation}>
           <SidebarProvider style={style as React.CSSProperties}>
-            <div className="flex h-screen w-full overflow-hidden bg-background">
+            <div className="flex h-dvh min-h-0 w-full overflow-hidden bg-background">
               <AppSidebar />
-              <div className="flex flex-1 flex-col overflow-hidden">
+              <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
                 <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-3">
                   <SidebarTrigger data-testid="button-sidebar-toggle" />
                 </header>
-                <main className="flex-1 overflow-y-auto overscroll-contain">
+                <main className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
                   <AppRouter />
                 </main>
               </div>
