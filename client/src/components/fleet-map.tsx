@@ -1,12 +1,11 @@
 import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import type { Vehicle, Driver } from "@shared/schema";
 import { vehicleStatusConfig, vehicleTypeLabel } from "@/lib/status";
 import { Link } from "wouter";
 
-// Center of the Melbourne <-> Ballarat operating corridor
 const CENTER: [number, number] = [-37.55, 144.35];
 
 const statusHex: Record<string, string> = {
@@ -38,13 +37,15 @@ function makeIcon(status: string, heading: number) {
 
 function FitOnce({ vehicles }: { vehicles: Vehicle[] }) {
   const map = useMap();
+  const fitted = useRef(false);
+
   useEffect(() => {
-    if (vehicles.length === 0) return;
+    if (fitted.current || vehicles.length === 0) return;
     const bounds = L.latLngBounds(vehicles.map((v) => [v.lat, v.lng] as [number, number]));
     map.fitBounds(bounds, { padding: [40, 40], maxZoom: 10 });
-    // Only run once on mount / first data load — avoid fighting the user's pan/zoom on refetch.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    fitted.current = true;
+  }, [map, vehicles]);
+
   return null;
 }
 
