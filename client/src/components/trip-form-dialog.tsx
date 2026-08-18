@@ -32,8 +32,8 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
 const formSchema = z.object({
-  vehicleId: z.number({ message: "Vehicle is required" }),
-  driverId: z.number({ message: "Driver is required" }),
+  vehicleId: z.number(),
+  driverId: z.number(),
   startLocation: z.string().min(1, "Start location is required"),
   endLocation: z.string().min(1, "End location is required"),
   startTime: z.string(),
