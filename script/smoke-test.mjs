@@ -89,6 +89,10 @@ async function main() {
     method: "POST",
     body: JSON.stringify(vehiclePayload({ status: "active" })),
   });
+  await expectStatus("/api/vehicles", 400, {
+    method: "POST",
+    body: JSON.stringify(vehiclePayload({ lat: 120 })),
+  });
   await expectStatus("/api/drivers", 400, {
     method: "POST",
     body: JSON.stringify(driverPayload({ status: "on_trip" })),
@@ -133,6 +137,20 @@ async function main() {
       body: JSON.stringify({ vehicleId }),
     });
 
+    await expectStatus("/api/trips", 400, {
+      method: "POST",
+      body: JSON.stringify({
+        vehicleId,
+        driverId,
+        startLocation: "QA Melbourne Depot",
+        endLocation: "QA Ballarat Depot",
+        startTime: "not-a-date",
+        endTime: null,
+        distanceKm: 110,
+        status: "in_progress",
+      }),
+    });
+
     const trip = await expectStatus("/api/trips", 201, {
       method: "POST",
       body: JSON.stringify({
@@ -167,6 +185,10 @@ async function main() {
       }),
     });
 
+    await expectStatus(`/api/trips/${tripId}`, 400, {
+      method: "PATCH",
+      body: JSON.stringify({ endTime: new Date().toISOString() }),
+    });
     await expectStatus(`/api/vehicles/${vehicleId}`, 409, {
       method: "PATCH",
       body: JSON.stringify({ driverId: null }),
@@ -220,7 +242,7 @@ async function main() {
     if (vehicleId) await request(`/api/vehicles/${vehicleId}`, { method: "DELETE" });
   }
 
-  console.log("[smoke] All API, lifecycle and simulation checks passed");
+  console.log("[smoke] All API, validation, lifecycle and simulation checks passed");
 }
 
 main().catch((err) => {
