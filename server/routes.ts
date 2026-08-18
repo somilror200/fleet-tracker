@@ -268,12 +268,26 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     if (existing.status === "completed" && parsed.data.status === "in_progress") {
       return res.status(409).json({ message: "Completed trips cannot be reopened" });
     }
-    if (parsed.data.endTime && parsed.data.status && parsed.data.status !== "completed") {
-      return res.status(400).json({ message: "An end time can only be set when completing a trip" });
+
+    const resultingStatus = parsed.data.status ?? existing.status;
+    if (parsed.data.endTime) {
+      if (resultingStatus !== "completed") {
+        return res.status(400).json({ message: "An end time can only be set on a completed trip" });
+      }
+      const endTimestamp = Date.parse(parsed.data.endTime);
+      if (Number.isNaN(endTimestamp) || endTimestamp < Date.parse(existing.startTime)) {
+        return res.status(400).json({ message: "Trip end time must be a valid date/time after the start time" });
+      }
     }
 
     const changes = { ...parsed.data };
-    if (changes.status === "completed" && !changes.endTime) changes.endTime = new Date().toISOString();
+    if (resultingStatus === "completed") {
+      if (hasOwn(parsed.data, "endTime") && parsed.data.endTime === null) {
+        changes.endTime = existing.endTime ?? new Date().toISOString();
+      } else if (changes.status === "completed" && !changes.endTime) {
+        changes.endTime = existing.endTime ?? new Date().toISOString();
+      }
+    }
 
     const trip = await storage.updateTrip(id, changes);
     if (!trip) return res.status(404).json({ message: "Trip not found" });
