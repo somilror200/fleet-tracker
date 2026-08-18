@@ -2,6 +2,8 @@ import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
+const validDateTime = (value: string) => !Number.isNaN(Date.parse(value));
+
 // ---------- Vehicles ----------
 export const vehicles = sqliteTable("vehicles", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -22,8 +24,16 @@ export const vehicles = sqliteTable("vehicles", {
 });
 
 export const insertVehicleSchema = createInsertSchema(vehicles, {
+  plate: z.string().trim().min(1, "Plate is required"),
+  name: z.string().trim().min(1, "Name is required"),
   type: z.enum(["truck", "van", "car"]),
   status: z.enum(["active", "idle", "maintenance"]),
+  mileageKm: z.number().min(0),
+  fuelPercent: z.number().min(0).max(100),
+  lat: z.number().min(-90).max(90),
+  lng: z.number().min(-180).max(180),
+  heading: z.number().min(0).lt(360),
+  speedKmh: z.number().min(0),
 }).omit({
   id: true,
   updatedAt: true,
@@ -44,6 +54,9 @@ export const drivers = sqliteTable("drivers", {
 });
 
 export const insertDriverSchema = createInsertSchema(drivers, {
+  name: z.string().trim().min(1, "Name is required"),
+  licenseNumber: z.string().trim().min(1, "License number is required"),
+  phone: z.string().trim().min(1, "Phone is required"),
   status: z.enum(["available", "on_trip", "off_duty"]),
 }).omit({
   id: true,
@@ -67,6 +80,12 @@ export const trips = sqliteTable("trips", {
 });
 
 export const insertTripSchema = createInsertSchema(trips, {
+  vehicleId: z.number().int().positive(),
+  driverId: z.number().int().positive(),
+  startLocation: z.string().trim().min(1, "Start location is required"),
+  endLocation: z.string().trim().min(1, "End location is required"),
+  startTime: z.string().refine(validDateTime, "Start time must be a valid date/time"),
+  distanceKm: z.number().min(0),
   status: z.enum(["in_progress", "completed"]),
 }).omit({
   id: true,
@@ -86,7 +105,9 @@ export const alerts = sqliteTable("alerts", {
 });
 
 export const insertAlertSchema = createInsertSchema(alerts, {
+  vehicleId: z.number().int().positive(),
   type: z.enum(["maintenance", "fuel", "speed"]),
+  message: z.string().trim().min(1, "Alert message is required"),
   severity: z.enum(["low", "medium", "high"]),
 }).omit({
   id: true,

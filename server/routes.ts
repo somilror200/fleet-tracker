@@ -27,7 +27,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   startSimulation();
 
   app.get("/api/health", async (_req, res) => {
-    const [vehicles, drivers, trips, alerts] = await Promise.all([
+    const [vehicleRows, driverRows, tripRows, alertRows] = await Promise.all([
       storage.getVehicles(),
       storage.getDrivers(),
       storage.getTrips(),
@@ -37,10 +37,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json({
       status: "ok",
       counts: {
-        vehicles: vehicles.length,
-        drivers: drivers.length,
-        trips: trips.length,
-        alerts: alerts.length,
+        vehicles: vehicleRows.length,
+        drivers: driverRows.length,
+        trips: tripRows.length,
+        alerts: alertRows.length,
       },
     });
   });
@@ -62,10 +62,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.post("/api/vehicles", async (req, res) => {
     const parsed = insertVehicleSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
+    if (parsed.data.status === "active") {
+      return res.status(400).json({ message: "New vehicles cannot start active; create a trip to put a vehicle into active service" });
+    }
 
     const requestedDriverId = parsed.data.driverId ?? null;
-    if (requestedDriverId !== null && !(await storage.getDriver(requestedDriverId))) {
-      return res.status(400).json({ message: "Assigned driver does not exist" });
+    if (requestedDriverId !== null) {
+      const driver = await storage.getDriver(requestedDriverId);
+      if (!driver) return res.status(400).json({ message: "Assigned driver does not exist" });
+      if (driver.status !== "available") {
+        return res.status(409).json({ message: "Only available drivers can be assigned to a new vehicle" });
+      }
     }
 
     let vehicle = await storage.createVehicle({ ...parsed.data, driverId: null });
@@ -91,12 +98,21 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     if (activeTrip && parsed.data.status && parsed.data.status !== "active") {
       return res.status(409).json({ message: "Complete the active trip before changing this vehicle out of active service" });
     }
+    if (!activeTrip && parsed.data.status === "active") {
+      return res.status(409).json({ message: "A vehicle can only be active while it has an in-progress trip" });
+    }
 
     const driverWasProvided = hasOwn(parsed.data, "driverId");
     const requestedDriverId = parsed.data.driverId ?? null;
+    if (activeTrip && driverWasProvided && requestedDriverId !== existing.driverId) {
+      return res.status(409).json({ message: "Complete the active trip before changing this vehicle's driver" });
+    }
     if (driverWasProvided && requestedDriverId !== null) {
       const driver = await storage.getDriver(requestedDriverId);
       if (!driver) return res.status(400).json({ message: "Assigned driver does not exist" });
+      if (driver.status !== "available" && driver.id !== existing.driverId) {
+        return res.status(409).json({ message: "That driver is not available" });
+      }
       if ((await storage.hasInProgressTripForDriver(requestedDriverId)) && driver.vehicleId !== id) {
         return res.status(409).json({ message: "That driver is already on an active trip" });
       }
@@ -129,10 +145,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.post("/api/drivers", async (req, res) => {
     const parsed = insertDriverSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
+    if (parsed.data.status === "on_trip") {
+      return res.status(400).json({ message: "New drivers cannot start on-trip; create a trip to put a driver on duty" });
+    }
 
     const requestedVehicleId = parsed.data.vehicleId ?? null;
-    if (requestedVehicleId !== null && !(await storage.getVehicle(requestedVehicleId))) {
-      return res.status(400).json({ message: "Assigned vehicle does not exist" });
+    if (requestedVehicleId !== null) {
+      const vehicle = await storage.getVehicle(requestedVehicleId);
+      if (!vehicle) return res.status(400).json({ message: "Assigned vehicle does not exist" });
+      if (vehicle.status !== "idle") {
+        return res.status(409).json({ message: "Only idle vehicles can be assigned to a new driver" });
+      }
     }
 
     let driver = await storage.createDriver({ ...parsed.data, vehicleId: null });
@@ -158,14 +181,21 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     if (activeTrip && parsed.data.status && parsed.data.status !== "on_trip") {
       return res.status(409).json({ message: "Complete the active trip before changing this driver's duty status" });
     }
+    if (!activeTrip && parsed.data.status === "on_trip") {
+      return res.status(409).json({ message: "A driver can only be on-trip while assigned to an in-progress trip" });
+    }
 
     const vehicleWasProvided = hasOwn(parsed.data, "vehicleId");
     const requestedVehicleId = parsed.data.vehicleId ?? null;
     if (activeTrip && vehicleWasProvided && requestedVehicleId !== existing.vehicleId) {
       return res.status(409).json({ message: "Complete the active trip before changing this driver's vehicle" });
     }
-    if (vehicleWasProvided && requestedVehicleId !== null && !(await storage.getVehicle(requestedVehicleId))) {
-      return res.status(400).json({ message: "Assigned vehicle does not exist" });
+    if (vehicleWasProvided && requestedVehicleId !== null) {
+      const vehicle = await storage.getVehicle(requestedVehicleId);
+      if (!vehicle) return res.status(400).json({ message: "Assigned vehicle does not exist" });
+      if (vehicle.status !== "idle" && vehicle.id !== existing.vehicleId) {
+        return res.status(409).json({ message: "That vehicle is not idle" });
+      }
     }
 
     const { vehicleId: _vehicleId, ...changes } = parsed.data;
@@ -238,12 +268,26 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     if (existing.status === "completed" && parsed.data.status === "in_progress") {
       return res.status(409).json({ message: "Completed trips cannot be reopened" });
     }
-    if (parsed.data.endTime && parsed.data.status && parsed.data.status !== "completed") {
-      return res.status(400).json({ message: "An end time can only be set when completing a trip" });
+
+    const resultingStatus = parsed.data.status ?? existing.status;
+    if (parsed.data.endTime) {
+      if (resultingStatus !== "completed") {
+        return res.status(400).json({ message: "An end time can only be set on a completed trip" });
+      }
+      const endTimestamp = Date.parse(parsed.data.endTime);
+      if (Number.isNaN(endTimestamp) || endTimestamp < Date.parse(existing.startTime)) {
+        return res.status(400).json({ message: "Trip end time must be a valid date/time after the start time" });
+      }
     }
 
     const changes = { ...parsed.data };
-    if (changes.status === "completed" && !changes.endTime) changes.endTime = new Date().toISOString();
+    if (resultingStatus === "completed") {
+      if (hasOwn(parsed.data, "endTime") && parsed.data.endTime === null) {
+        changes.endTime = existing.endTime ?? new Date().toISOString();
+      } else if (changes.status === "completed" && !changes.endTime) {
+        changes.endTime = existing.endTime ?? new Date().toISOString();
+      }
+    }
 
     const trip = await storage.updateTrip(id, changes);
     if (!trip) return res.status(404).json({ message: "Trip not found" });

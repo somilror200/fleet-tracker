@@ -48,6 +48,7 @@ export default function Drivers() {
     mutationFn: (id: number) => apiRequest("DELETE", `/api/drivers/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/drivers"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/vehicles"] });
       toast({ title: "Driver deleted" });
       setDeletingDriver(undefined);
     },
@@ -77,7 +78,7 @@ export default function Drivers() {
         }
       />
 
-      <div className="px-6 py-6">
+      <div className="px-4 py-5 sm:px-6 sm:py-6">
         <Card>
           <CardContent className="p-0">
             {isLoading ? (
@@ -103,13 +104,9 @@ export default function Drivers() {
                     {(drivers ?? []).map((driver) => (
                       <TableRow key={driver.id} data-testid={`row-driver-${driver.id}`}>
                         <TableCell className="font-medium">{driver.name}</TableCell>
-                        <TableCell className="tabular-nums text-muted-foreground">
-                          {driver.licenseNumber}
-                        </TableCell>
+                        <TableCell className="tabular-nums text-muted-foreground">{driver.licenseNumber}</TableCell>
                         <TableCell className="tabular-nums text-muted-foreground">{driver.phone}</TableCell>
-                        <TableCell>
-                          <DriverStatusBadge status={driver.status as any} />
-                        </TableCell>
+                        <TableCell><DriverStatusBadge status={driver.status as any} /></TableCell>
                         <TableCell>
                           {driver.vehicleId ? vehicleById.get(driver.vehicleId)?.name ?? "—" : "Unassigned"}
                         </TableCell>
@@ -118,6 +115,7 @@ export default function Drivers() {
                             <Button
                               variant="ghost"
                               size="icon"
+                              aria-label={`Edit ${driver.name}`}
                               onClick={() => {
                                 setEditingDriver(driver);
                                 setFormOpen(true);
@@ -129,6 +127,7 @@ export default function Drivers() {
                             <Button
                               variant="ghost"
                               size="icon"
+                              aria-label={`Delete ${driver.name}`}
                               onClick={() => setDeletingDriver(driver)}
                               data-testid={`button-delete-driver-${driver.id}`}
                             >
@@ -158,7 +157,7 @@ export default function Drivers() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete {deletingDriver?.name}?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently remove the driver from the roster.
+              This will permanently remove the driver from the roster. Drivers on an active trip cannot be deleted.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
