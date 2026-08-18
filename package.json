@@ -8,6 +8,8 @@
     "build": "tsx script/build.ts",
     "start": "NODE_ENV=production node dist/index.cjs",
     "check": "tsc",
+    "test": "npm run check && npm run build",
+    "test:smoke": "node script/smoke-test.mjs",
     "db:push": "drizzle-kit push"
   },
   "dependencies": {
