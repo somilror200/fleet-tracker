@@ -1,9 +1,10 @@
 import "dotenv/config";
-import express, { Response, NextFunction } from 'express';
-import type { Request } from 'express';
+import express, { Response, NextFunction } from "express";
+import type { Request } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "node:http";
+import { stopSimulation } from "./simulation";
 
 const app = express();
 const httpServer = createServer(app);
@@ -14,15 +15,17 @@ declare module "http" {
   }
 }
 
+app.disable("x-powered-by");
+
 app.use(
   express.json({
+    limit: "1mb",
     verify: (req, _res, buf) => {
       req.rawBody = buf;
     },
   }),
 );
-
-app.use(express.urlencoded({ extended: false }));
+app.use(express.urlencoded({ extended: false, limit: "1mb" }));
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
@@ -31,14 +34,13 @@ export function log(message: string, source = "express") {
     second: "2-digit",
     hour12: true,
   });
-
   console.log(`${formattedTime} [${source}] ${message}`);
 }
 
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
-  let capturedJsonResponse: Record<string, any> | undefined = undefined;
+  let capturedJsonResponse: unknown;
 
   const originalResJson = res.json;
   res.json = function (bodyJson, ...args) {
@@ -47,15 +49,18 @@ app.use((req, res, next) => {
   };
 
   res.on("finish", () => {
-    const duration = Date.now() - start;
-    if (path.startsWith("/api")) {
-      let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
-      }
+    if (!path.startsWith("/api")) return;
 
-      log(logLine);
+    const duration = Date.now() - start;
+    let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
+
+    // Avoid dumping the large, frequently-polled GET payloads into the terminal.
+    if (capturedJsonResponse && (req.method !== "GET" || res.statusCode >= 400)) {
+      const serialized = JSON.stringify(capturedJsonResponse);
+      logLine += ` :: ${serialized.length > 1000 ? `${serialized.slice(0, 1000)}…` : serialized}`;
     }
+
+    log(logLine);
   });
 
   next();
@@ -69,17 +74,10 @@ app.use((req, res, next) => {
     const message = err.message || "Internal Server Error";
 
     console.error("Internal Server Error:", err);
-
-    if (res.headersSent) {
-      return next(err);
-    }
-
+    if (res.headersSent) return next(err);
     return res.status(status).json({ message });
   });
 
-  // importantly only setup vite in development and after
-  // setting up all the other routes so the catch-all route
-  // doesn't interfere with the other routes
   if (process.env.NODE_ENV === "production") {
     serveStatic(app);
   } else {
@@ -87,19 +85,31 @@ app.use((req, res, next) => {
     await setupVite(httpServer, app);
   }
 
-  // ALWAYS serve the app on the port specified in the environment variable PORT
-  // Other ports are firewalled. Default to 5000 if not specified.
-  // this serves both the API and the client.
-  // It is the only port that is not firewalled.
   const port = parseInt(process.env.PORT || "5000", 10);
-  httpServer.listen(
-    {
-      port,
-      host: "0.0.0.0",
-      reusePort: true,
-    },
-    () => {
-      log(`serving on port ${port}`);
-    },
-  );
-})();
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(`Invalid PORT value: ${process.env.PORT}`);
+  }
+
+  httpServer.listen(port, "0.0.0.0", () => {
+    log(`serving on http://localhost:${port}`);
+  });
+
+  const shutdown = (signal: string) => {
+    log(`${signal} received, shutting down`, "server");
+    stopSimulation();
+    httpServer.close((err) => {
+      if (err) {
+        console.error("Failed to close HTTP server cleanly:", err);
+        process.exit(1);
+      }
+      process.exit(0);
+    });
+  };
+
+  process.once("SIGINT", () => shutdown("SIGINT"));
+  process.once("SIGTERM", () => shutdown("SIGTERM"));
+})().catch((err) => {
+  console.error("Fleet Tracker failed to start:", err);
+  stopSimulation();
+  process.exit(1);
+});
